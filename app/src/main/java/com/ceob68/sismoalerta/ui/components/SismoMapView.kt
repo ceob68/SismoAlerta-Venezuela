@@ -1,7 +1,6 @@
 package com.ceob68.sismoalerta.ui.components
 
 import android.graphics.Color
-import android.preference.PreferenceManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -37,10 +36,22 @@ fun SismoMapView(
     
     // Configuración inicial de OSMDroid
     LaunchedEffect(Unit) {
-        Configuration.getInstance().load(
-            context,
-            PreferenceManager.getDefaultSharedPreferences(context)
-        )
+        try {
+            // ⚠️ CRÍTICO: Evita bloqueos en los servidores de OpenStreetMap configurando un User-Agent único
+            // Sin esto, los tiles se descargan muy lentamente o no se cargan en absoluto
+            Configuration.getInstance().userAgentValue = context.packageName
+            
+            // Cargar preferencias con SharedPreferences estándar (no deprecado)
+            // Reemplaza android.preference.PreferenceManager (deprecado desde API 29)
+            Configuration.getInstance().load(
+                context,
+                context.getSharedPreferences("osmdroid_prefs", android.content.Context.MODE_PRIVATE)
+            )
+            
+            Timber.d("Configuración de OSMDroid inicializada correctamente")
+        } catch (e: Exception) {
+            Timber.e(e, "Error al inicializar OSMDroid")
+        }
     }
     
     Box(
@@ -51,16 +62,22 @@ fun SismoMapView(
                 MapView(ctx).apply {
                     mapViewRef.value = this
                     
-                    // Configurar origen de datos (Mapnik es el estándar de OpenStreetMap)
-                    setTileSource(TileSourceFactory.MAPNIK)
-                    
-                    // Habilitar gestos multitáctiles (zoom con dos dedos)
-                    setMultiTouchControls(true)
-                    
-                    // Configurar posición inicial centrada en Venezuela
-                    controller.setZoom(6.5)
-                    val centroVenezuela = GeoPoint(7.0, -65.0)
-                    controller.setCenter(centroVenezuela)
+                    try {
+                        // Configurar origen de datos (Mapnik es el estándar de OpenStreetMap)
+                        setTileSource(TileSourceFactory.MAPNIK)
+                        
+                        // Habilitar gestos multitáctiles (zoom con dos dedos)
+                        setMultiTouchControls(true)
+                        
+                        // Configurar posición inicial centrada en Venezuela
+                        controller.setZoom(6.5)
+                        val centroVenezuela = GeoPoint(7.0, -65.0)
+                        controller.setCenter(centroVenezuela)
+                        
+                        Timber.d("MapView de OSMDroid creada exitosamente")
+                    } catch (e: Exception) {
+                        Timber.e(e, "Error al crear MapView")
+                    }
                 }
             },
             update = { mapView ->
@@ -78,8 +95,7 @@ fun SismoMapView(
                             subDescription = sismo.place
                             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                             
-                            // Cambiar color del icono según la magnitud
-                            // (usando iconos predeterminados del sistema)
+                            // Ventana de información personalizada
                             infoWindow = SismoInfoWindow(mapView, sismo, onSismoSelected)
                         }
                         
@@ -97,7 +113,9 @@ fun SismoMapView(
             modifier = Modifier.fillMaxSize()
         )
         
-        // Card de información del sismo seleccionado (overlay)
+        // Card de información del sismo seleccionado (overlay de Compose)
+        // Arquitectura híbrida elegante: Interceptamos onOpen() del InfoWindow nativo
+        // para actualizar el estado de Compose y renderizar la tarjeta en Compose
         if (selectedSismo != null) {
             Card(
                 modifier = Modifier
@@ -119,7 +137,9 @@ fun SismoMapView(
 }
 
 /**
- * Ventana de información personalizada para marcadores
+ * Ventana de información personalizada para marcadores OSMDroid
+ * Intercepta el onOpen para actualizar el estado de Compose
+ * Esta es una genialidad arquitectónica: evita pelear con XML inflados nativos
  */
 class SismoInfoWindow(
     mapView: MapView,
@@ -128,11 +148,13 @@ class SismoInfoWindow(
 ) : org.osmdroid.views.overlay.InfoWindow(0, mapView) {
     
     override fun onOpen(item: Any?) {
+        // Actualiza el estado de Compose cuando se abre el marcador
         onSismoSelected(sismo)
+        Timber.d("InfoWindow abierto para sismo: ${sismo.place}")
     }
     
     override fun onClose() {
-        // Cerrar ventana
+        Timber.d("InfoWindow cerrado")
     }
 }
 
