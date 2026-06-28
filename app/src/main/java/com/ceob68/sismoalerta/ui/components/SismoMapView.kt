@@ -1,6 +1,7 @@
 package com.ceob68.sismoalerta.ui.components
 
 import android.graphics.Color
+import android.preference.PreferenceManager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -12,15 +13,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color as ComposeColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.ceob68.sismoalerta.data.model.SismoModel
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.MapView
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MarkerOptions
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
 import timber.log.Timber
 
 @Composable
@@ -29,60 +32,72 @@ fun SismoMapView(
     onSismoSelected: (SismoModel) -> Unit,
     selectedSismo: SismoModel? = null
 ) {
+    val context = LocalContext.current
     val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+    
+    // Configuración inicial de OSMDroid
+    LaunchedEffect(Unit) {
+        Configuration.getInstance().load(
+            context,
+            PreferenceManager.getDefaultSharedPreferences(context)
+        )
+    }
     
     Box(
         modifier = Modifier.fillMaxSize()
     ) {
         AndroidView(
-            factory = { context ->
-                MapView(context).apply {
+            factory = { ctx ->
+                MapView(ctx).apply {
                     mapViewRef.value = this
-                    onCreate(null)
-                    getMapAsync { googleMap ->
-                        try {
-                            val venezuelaCenter = LatLng(6.5, -66.5)
-                            googleMap.moveCamera(
-                                CameraUpdateFactory.newLatLngZoom(venezuelaCenter, 6f)
-                            )
+                    
+                    // Configurar origen de datos (Mapnik es el estándar de OpenStreetMap)
+                    setTileSource(TileSourceFactory.MAPNIK)
+                    
+                    // Habilitar gestos multitáctiles (zoom con dos dedos)
+                    setMultiTouchControls(true)
+                    
+                    // Configurar posición inicial centrada en Venezuela
+                    controller.setZoom(6.5)
+                    val centroVenezuela = GeoPoint(7.0, -65.0)
+                    controller.setCenter(centroVenezuela)
+                }
+            },
+            update = { mapView ->
+                try {
+                    // Limpiar marcadores antiguos antes de redibujar
+                    mapView.overlays.clear()
+                    
+                    // Iterar sobre la lista de sismos
+                    sismos.forEach { sismo ->
+                        val sismoPoint = GeoPoint(sismo.latitude, sismo.longitude)
+                        
+                        val marker = Marker(mapView).apply {
+                            position = sismoPoint
+                            title = "Mag: ${sismo.magnitude}"
+                            subDescription = sismo.place
+                            setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                             
-                            sismos.forEach { sismo ->
-                                val markerColor = when {
-                                    sismo.magnitude < 3.0 -> Color.GREEN
-                                    sismo.magnitude < 5.0 -> Color.YELLOW
-                                    else -> Color.RED
-                                }
-                                
-                                val marker = googleMap.addMarker(
-                                    MarkerOptions()
-                                        .position(LatLng(sismo.latitude, sismo.longitude))
-                                        .title("Mag: ${sismo.magnitude}")
-                                        .snippet(sismo.place)
-                                )
-                                
-                                marker?.tag = sismo
-                            }
-                            
-                            googleMap.setOnMarkerClickListener { marker ->
-                                val sismo = marker.tag as? SismoModel
-                                if (sismo != null) {
-                                    onSismoSelected(sismo)
-                                    true
-                                } else {
-                                    false
-                                }
-                            }
-                            
-                            Timber.d("${sismos.size} marcadores agregados al mapa")
-                        } catch (e: Exception) {
-                            Timber.e(e, "Error al configurar el mapa")
+                            // Cambiar color del icono según la magnitud
+                            // (usando iconos predeterminados del sistema)
+                            infoWindow = SismoInfoWindow(mapView, sismo, onSismoSelected)
                         }
+                        
+                        mapView.overlays.add(marker)
                     }
+                    
+                    // Forzar redibujado del mapa
+                    mapView.invalidate()
+                    
+                    Timber.d("${sismos.size} marcadores agregados al mapa OSM")
+                } catch (e: Exception) {
+                    Timber.e(e, "Error al actualizar marcadores en mapa")
                 }
             },
             modifier = Modifier.fillMaxSize()
         )
         
+        // Card de información del sismo seleccionado (overlay)
         if (selectedSismo != null) {
             Card(
                 modifier = Modifier
@@ -100,6 +115,24 @@ fun SismoMapView(
                 )
             }
         }
+    }
+}
+
+/**
+ * Ventana de información personalizada para marcadores
+ */
+class SismoInfoWindow(
+    mapView: MapView,
+    private val sismo: SismoModel,
+    private val onSismoSelected: (SismoModel) -> Unit
+) : org.osmdroid.views.overlay.InfoWindow(0, mapView) {
+    
+    override fun onOpen(item: Any?) {
+        onSismoSelected(sismo)
+    }
+    
+    override fun onClose() {
+        // Cerrar ventana
     }
 }
 

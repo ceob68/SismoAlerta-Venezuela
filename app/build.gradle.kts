@@ -79,10 +79,8 @@ dependencies {
     implementation("androidx.navigation:navigation-compose:2.7.7")
     implementation("androidx.activity:activity-compose:1.8.1")
 
-    // Google Maps Compose
-    implementation("com.google.maps.android:maps-compose:4.3.0")
-    implementation("com.google.android.gms:play-services-maps:18.2.0")
-    implementation("com.google.android.gms:play-services-location:21.1.0")
+    // OpenStreetMap (OSMDroid) - Sin API Key necesaria
+    implementation("org.osmdroid:osmdroid-android:6.1.18")
 
     // Retrofit & OkHttp
     implementation("com.squareup.retrofit2:retrofit:2.10.0")
